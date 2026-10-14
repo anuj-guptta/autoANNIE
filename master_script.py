@@ -20,12 +20,12 @@ from lib import submit_jobs as sj
 
 ''' Please modify the following to reflect your working directory '''
 
-user = '<username>'
+user = 'anujgupt'
 
 # bind mounted path for entering your container
-singularity = '-B/pnfs:/pnfs,/exp/annie/app/users/' + user + '/temp_directory:/tmp,/exp/annie/data:/exp/annie/data,/exp/annie/app:/exp/annie/app'
+singularity = '-B/pnfs:/pnfs,/exp/annie/app/users/' + user + '/tmp:/tmp,/exp/annie/data:/exp/annie/data,/exp/annie/app:/exp/annie/app'
 
-TA_folder = 'EventBuilding/'                      # Folder that was tar-balled (Needs to be the same name as the ToolAnalysis directory in /exp/annie/app that will run TrigOverlap + BeamFetcherV2 toolchains)
+TA_folder = 'myTA/'                      # Folder that was tar-balled (Needs to be the same name as the ToolAnalysis directory in /exp/annie/app that will run TrigOverlap + BeamFetcherV2 toolchains)
 TA_tar_name = 'MyToolAnalysis_grid.tar.gz'        # name of tar-ball
 
 grid_sub_dir = 'autoANNIE/'                       # input grid
@@ -54,6 +54,8 @@ output_path = '/pnfs/annie/scratch/users/' + user + '/' + grid_output           
 BC_scratch_output_path = output_path + 'beamcluster/'                                              # output from the BeamCluster jobs (embedded in folder above)
 raw_path = '/pnfs/annie/persistent/raw/raw/'                                                       # raw data location, transferred from the DAQ
 processed_path = '/pnfs/annie/persistent/processed/'                                               # general directory for "processed" data, such as BeamFetcher files, ProcessedData, etc...
+
+#processed_path = '/pnfs/annie/persistent/users/anujgupt/processed/'
 
 data_path = processed_path + 'processed_EBV2/'                                                     # Processed Data
 trig_path = '/pnfs/annie/persistent/processed/trigoverlap/'                                        # trigger overlap tar files

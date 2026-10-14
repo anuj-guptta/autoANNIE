@@ -4,8 +4,8 @@ import os, time
 # usage: python3 tarball_create_script.py
 
 tarball_name = 'MyToolAnalysis_grid.tar.gz'
-folder_path = '/exp/annie/app/users/<user>/'
-folder_name = 'EventBuilding/'
+folder_path = '/exp/annie/app/users/anujgupt/'
+folder_name = 'myTA/'
 
 tar_command = 'tar -czvf ' + tarball_name + ' -C ' + folder_path + ' ' + folder_name
 
