@@ -2,6 +2,7 @@
 
 # Author: Steven Doran
 # Date: December 2024
+# Last updated: Anuj Gupta (2026.10.11)
 
 import os
 import glob
@@ -9,6 +10,7 @@ import time
 import subprocess
 from lib import helper_script as hs
 from lib import submit_jobs as sj
+from lib import monitor_jobs as mj          # memory + disk monitor for the grid jobs
 
 #
 #
@@ -37,6 +39,8 @@ initial_submission_only = False                   # run PreProcess, BeamFetcher,
 
 clear_scratch = False                             # will prompt the user with the option to delete run folders (Processed + BeamCluster) in your scratch output (useful if re-processing runs)
 
+monitor_mem_disk = True                           # monitor memory + disk of your grid jobs (lib/monitor_jobs.py): table of HELD / >=90% jobs every check,
+monitor_interval = 5                              # minutes between monitor checks
 '''@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@'''
 
 #
@@ -93,7 +97,7 @@ usage_verbose = """
 # args: --step_size --runs_to_run --node_loc --source_type
 
 # step_size   = number of part files per job for event building (recommendations below)
-#                - beam/cosmic:    2+2
+#                - beam/cosmic:    3+2
 #                - AmBe/laser/LED: 1+2
 # runs_to_run = runs you would like to event build. It will ask you to enter one at a time
 # node_loc    = run OFFSITE or ONSITE (FermiGrid) jobs
@@ -101,8 +105,9 @@ usage_verbose = """
 
 # Grid job specifications:
 # -- lifetime: 6hr
-# -- memory: 4GB
-# -- disk: varies depending on number of part files, but typically between 5 and 10GB
+# -- memory: 6GB + 2GB (grace)
+# -- disk: varies depending on number of part files
+#          beam 8 GB + 0.5 GB per part file, AmBe 13 GB + 0.75 GB per part file
 #########################################################################################
 """
 
@@ -114,11 +119,12 @@ usage_verbose_BC = """
 # runs_to_run = runs you would like to run the BC toolchain over. It will ask you to enter one at a time
 # node_loc    = run OFFSITE or ONSITE (FermiGrid) jobs
 # source_type = run type ("beam", "cosmic", "AmBe", "LED", "laser")
+# job size    = 40 processed files per BeamCluster job (default, set from monitored disk usage)
 
 # Grid job specifications:
 # -- lifetime: 12hr
-# -- memory: 2GB
-# -- disk: 10GB for BC (baseline, plus more depending on number of part files)
+# -- memory: 2GB + 2GB (grace)
+# -- disk: 12 GB + 0.2 GB per processed file (processed files ~180-200 MB each)
 #########################################################################################
 """
 
@@ -132,7 +138,8 @@ if which_mode == '1':      # Event building mode
     run_type = hs.get_run_type()     # will return 'beam', 'AmBe', etc...
 
     # user provided arguments
-    step_size = int(input('Please specify the job part file size:     '))
+    default_step = 3 if run_type in ('beam', 'beam_39') else 1
+    step_size = int(input(f'\nPlease specify part files per job (beam: 3, other run types: 1) [default = {default_step}]:  ') or default_step)
     resub_step_size = 1    # not provided by user - manually set for resubmissions
     which_node = int(input('\nOFFSITE (1) or ONSITE (2)  (OFFSITE is recommended):     '))
     if which_node == 1:
@@ -262,7 +269,11 @@ if which_mode == '1':      # Event building mode
         print('\n***Initial submission only*** mode complete... my work here is done!\n')
         print('\nExiting...\n')
         exit()
-    
+  
+    # start the memory + disk monitor (background thread, runs until the end of this script)
+    if monitor_mem_disk:
+        monitor = mj.start(user, outdir=output_path, interval=monitor_interval)
+ 
     # display active jobs
     os.system('\njobsub_q -G annie --user ' + user + '\n')
     time.sleep(1)
@@ -293,6 +304,8 @@ if which_mode == '1':      # Event building mode
                 else:                   # if there aren't any missing files, transfer
                     if resubs[i] != -1:
                         print('\n\nRun ' + runs_to_run[i] + ' is done! It was resubmitted ' + str(resubs[i]) + ' times. Initiating transfer...\n')
+                        if monitor_mem_disk:
+                            monitor.save_run(runs_to_run[i])
                         os.system('sh lib/copy_grid_output.sh ' + runs_to_run[i] + ' ' + data_path + ' ' + output_path + ' ' + lappd_EB_path + ' ' + run_type)
                         time.sleep(1)
                         hs.missing_after_transfer(runs_to_run[i], raw_path, data_path, run_type)
@@ -303,6 +316,8 @@ if which_mode == '1':      # Event building mode
     
             elif check[i] == True and resubs[i] == 2:    # no more jobs, but already re-submitted twice
                 print('\nMax re-submissions reached for run ' + runs_to_run[i] + '! Initiating transfer...\n')
+                if monitor_mem_disk:
+                    monitor.save_run(runs_to_run[i])
                 os.system('sh lib/copy_grid_output.sh ' + runs_to_run[i] + ' ' + data_path + ' ' + output_path + ' ' + lappd_EB_path + ' ' + run_type)
                 time.sleep(1)
                 hs.missing_after_transfer(runs_to_run[i], raw_path, data_path, run_type)
@@ -335,6 +350,9 @@ if which_mode == '1':      # Event building mode
         for filename in glob.glob(pattern):
             subprocess.run(["./lib/ifdh.sh", "rm", filename], check=True)
 
+    if monitor_mem_disk:
+        monitor.stop()
+
     time.sleep(1)
     print('\nExiting...\n')
     
@@ -343,7 +361,7 @@ if which_mode == '1':      # Event building mode
 
 if which_mode == '2':        # BeamCluster
 
-    BC_job_size = 50         # how many part files per job  (500 is the recommended max)
+    BC_job_size = 40         # how many part files per job  (500 is the recommended max)
 
     print(usage_verbose_BC, '\n')
 
@@ -413,6 +431,9 @@ if which_mode == '2':        # BeamCluster
     sj.container_BC(TA_folder, scratch_path, run_type)
     time.sleep(1)
 
+    if monitor_mem_disk:
+        monitor = mj.start(user, outdir=BC_scratch_output_path, interval=monitor_interval)
+
     while complete_BC != len(BC_resubs):
 
         BC_active_jobs, BC_which_runs, BC_check = hs.my_jobs_BC(runs_to_run, user)
@@ -425,7 +446,7 @@ if which_mode == '2':        # BeamCluster
             n_jobs = len(parts_i)
 
             # Disk space for BeamCluster jobs --> feel free to increase this if needed
-            disk_space_factor = str(int(((BC_job_size*8)/1000) + 8))
+            disk_space_factor = str(int(BC_job_size*0.2 + 12))
             
             # initial submission
             if BC_check[i] == True and BC_resubs[i] == 0:
@@ -512,6 +533,8 @@ if which_mode == '2':        # BeamCluster
      
     
             elif BC_check[i] == True and BC_resubs[i] == 2:    # no more jobs, but already re-submitted twice
+                if monitor_mem_disk:
+                    monitor.save_run(runs_to_run[i])
                 print('\nMax re-submissions reached for run ' + runs_to_run[i] + ' for BC jobs! Will not transfer to /persistent\n')
                 complete_BC += 1
     
@@ -520,7 +543,10 @@ if which_mode == '2':        # BeamCluster
             elif BC_resubs[i] == -1:
                 present = hs.check_root_pro(runs_to_run[i],beamcluster_path)
                 if present == False:
-    
+   
+                    if monitor_mem_disk:
+                        monitor.save_run(runs_to_run[i])
+ 
                     # first merge the BeamCluster files into one
                     print('\nMerging BeamCluster files...\n')
                     os.system('sh lib/merge_it.sh ' + singularity + ' ' + BC_scratch_output_path + ' ' + runs_to_run[i] + ' ' + 'BC')
@@ -579,6 +605,9 @@ if which_mode == '2':        # BeamCluster
     ):
         for filename in glob.glob(pattern):
             subprocess.run(["./lib/ifdh.sh", "rm", filename], check=True)
+
+    if monitor_mem_disk:
+        monitor.stop()
 
     time.sleep(1)
     print('\nExiting...\n')
