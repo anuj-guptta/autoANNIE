@@ -7,7 +7,12 @@ tarball_name = 'MyToolAnalysis_grid.tar.gz'
 folder_path = '/exp/annie/app/users/anujgupt/'
 folder_name = 'myTA/'
 
-tar_command = 'tar -czvf ' + tarball_name + ' -C ' + folder_path + ' ' + folder_name
+# Exclude .git (repository history, not needed on the grid)
+exclusions = (
+    "--exclude='.git'"
+)
+
+tar_command = 'tar ' + exclusions + ' -czvf ' + tarball_name + ' -C ' + folder_path + ' ' + folder_name
 
 print('\nTar-ing folder (details below)')
 print(' - tar-ball name: ' + tarball_name)
